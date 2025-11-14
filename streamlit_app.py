@@ -299,7 +299,13 @@ if st.session_state.scraping_complete and st.session_state.results_df is not Non
     with col3:
         st.metric("With Website", df['website'].notna().sum())
     with col4:
-        st.metric("Avg Rating", f"{df['rating'].str.extract(r'(\d+\.?\d*)')[0].astype(float).mean():.1f}" if not df['rating'].empty else "N/A")
+        # Extract rating calculation outside f-string to avoid backslash in f-string expression
+        try:
+            avg_rating = df['rating'].str.extract(r'(\d+\.?\d*)')[0].astype(float).mean()
+            rating_display = f"{avg_rating:.1f}" if not pd.isna(avg_rating) else "N/A"
+        except:
+            rating_display = "N/A"
+        st.metric("Avg Rating", rating_display)
     
     # Preview table
     st.dataframe(df.head(10), use_container_width=True)
