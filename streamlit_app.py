@@ -62,28 +62,52 @@ def scrape_google_maps(keywords, location, max_results_per_keyword, progress_bar
     all_results = []
     total_keywords = len(keywords)
     
+    # Log: Driver initialization
+    print(f"\n{'='*80}")
+    print(f"[INIT] Starting scraper with {total_keywords} keywords")
+    print(f"[INIT] Location: {location}")
+    print(f"[INIT] Max results per keyword: {max_results_per_keyword}")
+    print(f"{'='*80}\n")
+    
     driver = setup_driver()
+    print(f"[DRIVER] Chrome driver initialized successfully")
     
     try:
         for idx, keyword in enumerate(keywords):
+            print(f"\n{'='*80}")
+            print(f"[KEYWORD {idx+1}/{total_keywords}] Processing: '{keyword}'")
+            print(f"{'='*80}")
+            
             status_text.text(f"🔍 Scraping: {keyword} in {location}...")
             
             # Build search URL
             search_query = f"{keyword} in {location}"
             url = f"https://www.google.com/maps/search/{search_query.replace(' ', '+')}"
+            print(f"[URL] Constructed search URL: {url}")
             
+            print(f"[NAV] Navigating to URL...")
             driver.get(url)
+            print(f"[NAV] Page loaded, current URL: {driver.current_url}")
             
             # Wait for page to fully load and results to populate
             # Using longer wait time as proven in working code (main_scraper.py line 36)
+            print(f"[WAIT] Waiting 15 seconds for page to fully load...")
             time.sleep(15)
+            print(f"[WAIT] Wait complete")
             
             # Verify the results container loaded
             # This XPath matches the working code pattern (main_scraper.py line 42)
+            print(f"[CONTAINER] Searching for results container with XPath: '//div[contains(@aria-label, \"Results for\")]'")
             try:
                 results_container = driver.find_element(By.XPATH, '//div[contains(@aria-label, "Results for")]')
-            except:
+                aria_label = results_container.get_attribute("aria-label")
+                print(f"[CONTAINER] ✓ Results container found! aria-label: '{aria_label}'")
+            except Exception as e:
                 # If results container doesn't load, skip this keyword
+                print(f"[CONTAINER] ✗ FAILED to find results container")
+                print(f"[CONTAINER] Exception: {str(e)}")
+                print(f"[CONTAINER] Page source length: {len(driver.page_source)} characters")
+                print(f"[CONTAINER] Skipping keyword '{keyword}'")
                 status_text.text(f"⚠️ Could not find results for: {keyword} in {location}")
                 continue
             
@@ -93,35 +117,52 @@ def scrape_google_maps(keywords, location, max_results_per_keyword, progress_bar
             scroll_attempts = 0
             max_scroll_attempts = max_results_per_keyword // 20 + 3
             
+            print(f"\n[SCROLL] Starting scroll phase - max attempts: {max_scroll_attempts}, target results: {max_results_per_keyword}")
+            
             while scroll_attempts < max_scroll_attempts and results_count < max_results_per_keyword:
                 try:
                     # Find all result elements using the working XPath selector
                     # This selector scopes to the results sidebar container (main_scraper.py line 42, 108, 114)
-                    elements = driver.find_elements(By.XPATH, '//div[contains(@aria-label, "Results for")]/div/div[./a]')
+                    xpath_selector = '//div[contains(@aria-label, "Results for")]/div/div[./a]'
+                    print(f"[SCROLL] Attempt {scroll_attempts + 1}/{max_scroll_attempts} - Finding elements with XPath: '{xpath_selector}'")
+                    elements = driver.find_elements(By.XPATH, xpath_selector)
                     
                     if elements:
+                        print(f"[SCROLL] ✓ Found {len(elements)} elements")
                         # Scroll to last element to load more results
                         # Using the proven pattern from working code (main_scraper.py line 43)
                         last_element = elements[-1]
+                        print(f"[SCROLL] Scrolling to last element (index {len(elements)-1})...")
                         driver.execute_script("arguments[0].scrollIntoView();", last_element)
                         # Use longer wait time as in working code (main_scraper.py line 45)
+                        print(f"[SCROLL] Waiting 5 seconds after scroll...")
                         time.sleep(5)
                         
                         results_count = len(elements)
                         scroll_attempts += 1
+                        print(f"[SCROLL] Current results count: {results_count}")
                     else:
                         # No elements found, stop scrolling
+                        print(f"[SCROLL] ✗ No elements found, stopping scroll")
                         break
                 except Exception as e:
+                    print(f"[SCROLL] ✗ Exception during scroll: {str(e)}")
                     break
+            
+            print(f"[SCROLL] Scroll phase complete - Total elements found: {results_count}")
             
             # Extract data from each listing
             # Re-fetch elements using the same working XPath selector (main_scraper.py line 114)
+            print(f"\n[EXTRACT] Re-fetching elements for data extraction...")
             elements = driver.find_elements(By.XPATH, '//div[contains(@aria-label, "Results for")]/div/div[./a]')
+            print(f"[EXTRACT] Found {len(elements)} elements to process")
+            print(f"[EXTRACT] Will process up to {min(len(elements), max_results_per_keyword)} elements")
             
             for i, element in enumerate(elements[:max_results_per_keyword]):
                 if i >= max_results_per_keyword:
                     break
+                
+                print(f"\n[ITEM {i+1}/{min(len(elements), max_results_per_keyword)}] Processing element at index {i}")
                     
                 try:
                     # Click on the listing to load details
@@ -129,95 +170,140 @@ def scrape_google_maps(keywords, location, max_results_per_keyword, progress_bar
                     # Use retry logic from working code (main_scraper.py line 115-126)
                     retry_count = 0
                     max_retries = 3
+                    click_successful = False
+                    
+                    print(f"[CLICK] Starting click attempts (max retries: {max_retries})")
+                    
                     while retry_count < max_retries:
                         try:
                             # Re-fetch elements to avoid stale references
+                            print(f"[CLICK] Retry {retry_count + 1}/{max_retries} - Re-fetching elements...")
                             current_elements = driver.find_elements(By.XPATH, '//div[contains(@aria-label, "Results for")]/div/div[./a]')
+                            print(f"[CLICK] Found {len(current_elements)} elements")
+                            
                             if i >= len(current_elements):
+                                print(f"[CLICK] ✗ Index {i} out of range (only {len(current_elements)} elements)")
                                 break
+                            
                             # Click the element at index i
+                            print(f"[CLICK] Attempting to click element at index {i}...")
                             current_elements[i].click()
+                            print(f"[CLICK] ✓ Click successful!")
+                            
                             # Use longer wait time as in working code (main_scraper.py line 118)
+                            print(f"[CLICK] Waiting 5 seconds for details to load...")
                             time.sleep(5)
+                            click_successful = True
                             break  # Click succeeded, exit retry loop
-                        except:
+                            
+                        except Exception as click_error:
                             # If click fails, scroll to the CORRECT element at index i and retry
                             retry_count += 1
+                            print(f"[CLICK] ✗ Click failed: {str(click_error)}")
+                            
                             if retry_count < max_retries:
                                 try:
                                     # Scroll to element at index i (not [-1])
+                                    print(f"[CLICK] Attempting to scroll to element at index {i}...")
                                     elem = driver.find_elements(By.XPATH, '//div[contains(@aria-label, "Results for")]/div/div[./a]')[i]
                                     driver.execute_script("arguments[0].scrollIntoView();", elem)
+                                    print(f"[CLICK] Scroll successful, waiting 5 seconds...")
                                     time.sleep(5)
                                     # Continue loop to retry the click
-                                except:
+                                except Exception as scroll_error:
                                     # If scroll fails, exit retry loop
+                                    print(f"[CLICK] ✗ Scroll failed: {str(scroll_error)}")
                                     break
                             else:
                                 # Max retries reached, exit retry loop
+                                print(f"[CLICK] ✗ Max retries reached, giving up on this element")
                                 break
                     
+                    if not click_successful:
+                        print(f"[ITEM {i+1}] ✗ Failed to click element, skipping...")
+                        continue
+                    
                     item = {}
+                    print(f"[DATA] Extracting business data...")
                     
                     # Extract name
                     try:
                         item['name'] = driver.find_element(By.CSS_SELECTOR, "h1.fontHeadlineLarge").text
-                    except:
+                        print(f"[DATA] ✓ Name: '{item['name']}'")
+                    except Exception as e:
                         item['name'] = ""
+                        print(f"[DATA] ✗ Name extraction failed: {str(e)}")
                     
                     # Extract link
                     try:
                         item['link'] = driver.current_url
-                    except:
+                        print(f"[DATA] ✓ Link: {item['link']}")
+                    except Exception as e:
                         item['link'] = ""
+                        print(f"[DATA] ✗ Link extraction failed: {str(e)}")
                     
                     # Extract rating
                     try:
                         item['rating'] = driver.find_element(By.CSS_SELECTOR, "div[jsaction='pane.rating.moreReviews']").text.split('\n')[0]
-                    except:
+                        print(f"[DATA] ✓ Rating: {item['rating']}")
+                    except Exception as e:
                         item['rating'] = ""
+                        print(f"[DATA] ✗ Rating extraction failed: {str(e)}")
                     
                     # Extract reviews
                     try:
                         reviews_text = driver.find_element(By.CSS_SELECTOR, 'button[jsaction="pane.rating.moreReviews"]').text
                         item['reviews'] = reviews_text.split()[0].replace('(', '').replace(')', '')
-                    except:
+                        print(f"[DATA] ✓ Reviews: {item['reviews']}")
+                    except Exception as e:
                         item['reviews'] = ""
+                        print(f"[DATA] ✗ Reviews extraction failed: {str(e)}")
                     
                     # Extract status
                     try:
                         item['status'] = driver.find_element(By.CSS_SELECTOR, "span.ZDu9vd").text.split('·')[0].strip()
-                    except:
+                        print(f"[DATA] ✓ Status: {item['status']}")
+                    except Exception as e:
                         item['status'] = ""
+                        print(f"[DATA] ✗ Status extraction failed: {str(e)}")
                     
                     # Extract address
                     try:
                         address_elem = driver.find_element(By.CSS_SELECTOR, "button[data-item-id='address']")
                         item['address'] = address_elem.get_attribute("aria-label").split(":")[-1].strip()
-                    except:
+                        print(f"[DATA] ✓ Address: {item['address']}")
+                    except Exception as e:
                         item['address'] = ""
+                        print(f"[DATA] ✗ Address extraction failed: {str(e)}")
                     
                     # Extract website
                     try:
                         item['website'] = driver.find_element(By.CSS_SELECTOR, "a[data-tooltip='Open website']").get_attribute("href")
-                    except:
+                        print(f"[DATA] ✓ Website: {item['website']}")
+                    except Exception as e:
                         item['website'] = ""
+                        print(f"[DATA] ✗ Website extraction failed: {str(e)}")
                     
                     # Extract phone
                     try:
                         phone_elem = driver.find_element(By.CSS_SELECTOR, "button[data-item-id*='phone']")
                         item['phone'] = phone_elem.get_attribute("aria-label").split(":")[-1].strip()
-                    except:
+                        print(f"[DATA] ✓ Phone: {item['phone']}")
+                    except Exception as e1:
                         try:
                             item['phone'] = driver.find_element(By.CSS_SELECTOR, "button[data-tooltip='Copy phone number']").get_attribute("aria-label").split(":")[-1].strip()
-                        except:
+                            print(f"[DATA] ✓ Phone (fallback): {item['phone']}")
+                        except Exception as e2:
                             item['phone'] = ""
+                            print(f"[DATA] ✗ Phone extraction failed: {str(e1)}, fallback also failed: {str(e2)}")
                     
                     # Extract opening hours
                     try:
                         item['opening_hours'] = driver.find_element(By.CSS_SELECTOR, "div.t39EBf.GUrTXd").get_attribute("aria-label")
-                    except:
+                        print(f"[DATA] ✓ Opening hours: {item['opening_hours']}")
+                    except Exception as e:
                         item['opening_hours'] = ""
+                        print(f"[DATA] ✗ Opening hours extraction failed: {str(e)}")
                     
                     item['keyword'] = keyword
                     item['location'] = location
@@ -225,18 +311,42 @@ def scrape_google_maps(keywords, location, max_results_per_keyword, progress_bar
                     
                     if item['name']:  # Only add if we got at least a name
                         all_results.append(item)
+                        print(f"[ITEM {i+1}] ✓ Successfully added to results (Total: {len(all_results)})")
+                    else:
+                        print(f"[ITEM {i+1}] ✗ Skipped - no name extracted")
                     
                     # Update status
                     status_text.text(f"🔍 Scraping: {keyword} in {location} - Found {len(all_results)} businesses")
                     
                 except Exception as e:
+                    print(f"[ITEM {i+1}] ✗ Exception during extraction: {str(e)}")
                     continue
             
             # Update progress bar
             progress_bar.progress((idx + 1) / total_keywords)
             
+            print(f"\n[KEYWORD {idx+1}/{total_keywords}] Complete - Collected {len([r for r in all_results if r['keyword'] == keyword])} results for '{keyword}'")
+            print(f"[SUMMARY] Total results so far: {len(all_results)}")
+            
     finally:
+        print(f"\n{'='*80}")
+        print(f"[CLEANUP] Closing Chrome driver...")
         driver.quit()
+        print(f"[CLEANUP] Driver closed")
+        print(f"{'='*80}\n")
+    
+    print(f"\n{'='*80}")
+    print(f"[FINAL] Scraping complete!")
+    print(f"[FINAL] Total results collected: {len(all_results)}")
+    print(f"[FINAL] Keywords processed: {total_keywords}")
+    if all_results:
+        print(f"[FINAL] Results breakdown by keyword:")
+        for kw in keywords:
+            count = len([r for r in all_results if r['keyword'] == kw])
+            print(f"[FINAL]   - '{kw}': {count} results")
+    else:
+        print(f"[FINAL] ⚠️ WARNING: No results collected!")
+    print(f"{'='*80}\n")
     
     return all_results
 
