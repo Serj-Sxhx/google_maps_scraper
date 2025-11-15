@@ -127,24 +127,35 @@ def scrape_google_maps(keywords, location, max_results_per_keyword, progress_bar
                     # Click on the listing to load details
                     # Re-fetch elements to avoid stale element reference (main_scraper.py line 117)
                     # Use retry logic from working code (main_scraper.py line 115-126)
-                    while True:
+                    retry_count = 0
+                    max_retries = 3
+                    while retry_count < max_retries:
                         try:
+                            # Re-fetch elements to avoid stale references
                             current_elements = driver.find_elements(By.XPATH, '//div[contains(@aria-label, "Results for")]/div/div[./a]')
                             if i >= len(current_elements):
                                 break
+                            # Click the element at index i
                             current_elements[i].click()
                             # Use longer wait time as in working code (main_scraper.py line 118)
                             time.sleep(5)
-                            break
+                            break  # Click succeeded, exit retry loop
                         except:
-                            # If click fails, scroll to element and retry (main_scraper.py line 121-123)
-                            try:
-                                elem = driver.find_elements(By.XPATH, '//div[contains(@aria-label, "Results for")]/div/div[./a]')[-1]
-                                driver.execute_script("arguments[0].scrollIntoView();", elem)
-                                time.sleep(5)
-                            except:
-                                pass
-                            break
+                            # If click fails, scroll to the CORRECT element at index i and retry
+                            retry_count += 1
+                            if retry_count < max_retries:
+                                try:
+                                    # Scroll to element at index i (not [-1])
+                                    elem = driver.find_elements(By.XPATH, '//div[contains(@aria-label, "Results for")]/div/div[./a]')[i]
+                                    driver.execute_script("arguments[0].scrollIntoView();", elem)
+                                    time.sleep(5)
+                                    # Continue loop to retry the click
+                                except:
+                                    # If scroll fails, exit retry loop
+                                    break
+                            else:
+                                # Max retries reached, exit retry loop
+                                break
                     
                     item = {}
                     
