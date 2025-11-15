@@ -73,39 +73,87 @@ def scrape_google_maps(keywords, location, max_results_per_keyword, progress_bar
             url = f"https://www.google.com/maps/search/{search_query.replace(' ', '+')}"
             
             driver.get(url)
-            time.sleep(5)
+            
+            # Wait for the results feed to load using explicit wait (more reliable than fixed sleep)
+            # This waits up to 15 seconds for the feed container to appear
+            try:
+                wait = WebDriverWait(driver, 15)
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[role="feed"]')))
+                time.sleep(2)  # Small additional wait for initial results to populate
+            except:
+                # If feed doesn't load, skip this keyword
+                status_text.text(f"⚠️ Could not load results for: {keyword} in {location}")
+                continue
             
             # Scroll to load more results
+            # We scroll the feed container itself, not individual elements
             results_count = 0
             scroll_attempts = 0
             max_scroll_attempts = max_results_per_keyword // 20 + 3
             
             while scroll_attempts < max_scroll_attempts and results_count < max_results_per_keyword:
                 try:
-                    # Find all result elements
-                    elements = driver.find_elements(By.XPATH, '//div[contains(@aria-label, "Results for")]/div/div[./a]')
+                    # Find all result elements using robust selectors with fallback options
+                    # Try multiple selectors in order of reliability
+                    elements = []
+                    
+                    # Selector 1: Try the main result link selector (most reliable)
+                    elements = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/maps/place/"]')
+                    
+                    # Selector 2: If no results, try the article role selector
+                    if not elements:
+                        elements = driver.find_elements(By.CSS_SELECTOR, 'div[role="article"]')
+                    
+                    # Selector 3: If still no results, try common class-based selector
+                    if not elements:
+                        elements = driver.find_elements(By.CSS_SELECTOR, 'div.Nv2PK')
                     
                     if elements:
-                        last_element = elements[-1]
-                        driver.execute_script("arguments[0].scrollIntoView();", last_element)
-                        time.sleep(3)
+                        # Scroll the feed container to load more results
+                        # This is more reliable than scrolling to individual elements
+                        try:
+                            feed = driver.find_element(By.CSS_SELECTOR, 'div[role="feed"]')
+                            driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", feed)
+                            time.sleep(2)
+                        except:
+                            # Fallback: scroll to last element if feed scroll fails
+                            last_element = elements[-1]
+                            driver.execute_script("arguments[0].scrollIntoView();", last_element)
+                            time.sleep(2)
+                        
                         results_count = len(elements)
                         scroll_attempts += 1
                     else:
+                        # No elements found, stop scrolling
                         break
                 except Exception as e:
                     break
             
             # Extract data from each listing
-            elements = driver.find_elements(By.XPATH, '//div[contains(@aria-label, "Results for")]/div/div[./a]')
+            # Re-fetch elements using the same robust selector logic
+            elements = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/maps/place/"]')
+            if not elements:
+                elements = driver.find_elements(By.CSS_SELECTOR, 'div[role="article"]')
+            if not elements:
+                elements = driver.find_elements(By.CSS_SELECTOR, 'div.Nv2PK')
             
             for i, element in enumerate(elements[:max_results_per_keyword]):
                 if i >= max_results_per_keyword:
                     break
                     
                 try:
-                    # Click on the listing
-                    elements[i].click()
+                    # Click on the listing to load details
+                    # Re-fetch the element to avoid stale element reference
+                    current_elements = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/maps/place/"]')
+                    if not current_elements:
+                        current_elements = driver.find_elements(By.CSS_SELECTOR, 'div[role="article"]')
+                    if not current_elements:
+                        current_elements = driver.find_elements(By.CSS_SELECTOR, 'div.Nv2PK')
+                    
+                    if i >= len(current_elements):
+                        break
+                    
+                    current_elements[i].click()
                     time.sleep(2)
                     
                     item = {}
@@ -182,9 +230,6 @@ def scrape_google_maps(keywords, location, max_results_per_keyword, progress_bar
                     
                 except Exception as e:
                     continue
-                
-                # Re-fetch elements for next iteration
-                elements = driver.find_elements(By.XPATH, '//div[contains(@aria-label, "Results for")]/div/div[./a]')
             
             # Update progress bar
             progress_bar.progress((idx + 1) / total_keywords)
