@@ -325,11 +325,38 @@ def scrape_google_maps(keywords, location, max_results_per_keyword, progress_bar
                     else:
                         log(f"[ITEM {i+1}] ✗ Skipped - no name extracted")
                     
+                    # Navigate back to results list so we can click the next element
+                    # This is critical because clicking an element changes the DOM
+                    log(f"[NAV] Navigating back to results list...")
+                    try:
+                        # Click the back button to return to the results list
+                        back_button = driver.find_element(By.CSS_SELECTOR, "button[aria-label*='Back']")
+                        back_button.click()
+                        log(f"[NAV] ✓ Clicked back button")
+                        time.sleep(2)  # Wait for results list to reload
+                    except Exception as nav_error:
+                        # If back button fails, try alternative: re-navigate to the search URL
+                        log(f"[NAV] ✗ Back button failed: {str(nav_error)}")
+                        log(f"[NAV] Attempting to re-navigate to search URL...")
+                        try:
+                            driver.get(url)
+                            time.sleep(5)  # Wait for page to reload
+                            log(f"[NAV] ✓ Re-navigated to search URL")
+                        except Exception as url_error:
+                            log(f"[NAV] ✗ Re-navigation failed: {str(url_error)}")
+                    
                     # Update status
                     status_text.text(f"🔍 Scraping: {keyword} in {location} - Found {len(all_results)} businesses")
                     
                 except Exception as e:
                     log(f"[ITEM {i+1}] ✗ Exception during extraction: {str(e)}")
+                    # Try to navigate back even if extraction failed
+                    try:
+                        back_button = driver.find_element(By.CSS_SELECTOR, "button[aria-label*='Back']")
+                        back_button.click()
+                        time.sleep(2)
+                    except:
+                        pass
                     continue
             
             # Update progress bar
